@@ -1,0 +1,144 @@
+---
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir ="analysis") })
+
+title: "金融论文数据分析"
+date: '`r format(Sys.Date())`'
+CJKmainfont: SimSun
+output:
+  html_document: 
+    code_folding: hide
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+  pdf_document: 
+    includes:
+      header-includes:
+        - \usepackage{xeCJK}
+        - \usepackage{amsmath}
+        - \usepackage{listings}
+        - \usepackage{amsfonts}
+        - \usepackage{amssymb}
+    latex_engine: xelatex
+    number_sections: yes
+  word_document: default
+---
+
+```{r setup, message=FALSE,warning=FALSE}
+setwd("C:/Users/CHEN/Desktop/金融论文")
+knitr::opts_chunk$set(
+  cache = TRUE,
+  fig.align = 'center',
+  out.width = "100%",
+  message = FALSE,
+  warning = FALSE)
+
+```
+## 数据导入
+```{r}
+y <- c(0.77,0.79,0.89,1.03,0.85,0.86,0.91,1.01,1.02,1.05,0.96,1.07)
+x1 <- c(26.7,26.2,27.2,26.8,24.1,24.0,23.6,22.1,22.2,21.4,20.3,19.1)
+x2 <- c(5596,5539,5546,4131,5637,4266,2185,5360,4166,4496,2686,2627)
+x3 <- c(0.916,0.808,0.670,0.648,0.621,0.605,0.513,0.494,0.484,0.478,0.471,0.457)
+x4 <- c(9247,10428,12407,14163,15636,17476,18979 ,20653,22553,24579,26679,27904)
+x5 <- c( 27.14,27.22,27.45,27.86, 28.17 ,28.56,29.07,30.11,30.75,31.88,32.76,32.84)
+data <- data.frame(y,x1,x2,x3,x4,x5)
+```
+
+## 线性回归
+```{r}
+library(car)
+```
+
+### 不含交互项的线性回归模型
+```{r}
+model_lm <- lm(y~x1+x2+x3+x4+x5)
+#模型详细结果
+summary(model_lm)
+#VIF
+vif(model_lm)
+#变量x1-x5的相关系数
+cor(data[,2:6])
+#模型参数
+coefficients(model_lm)
+#模型参数的置信区间
+confint(model_lm)
+#模型预测值
+fitted(model_lm)
+#模型残差值
+residuals(model_lm)
+#模型方差分析
+anova(model_lm)
+#AIC
+AIC(model_lm)
+
+```
+从VIF猜测变量间有严重的多重共线性，计算相关系数后发现确实存在多重共线性，下面用step函数对变量进行筛选
+```{r}
+model_lm.step <- step(model_lm, direction = "backward")
+summary(model_lm.step)
+vif(model_lm.step)
+```
+根据AIC 赤池信息准则，模型最后选x1,x4变量参与建模。但是VIF 还是高。
+```{r}
+#检验是否可以进行主成分,Overall MSA大于0.5就可以
+library(psych)
+KMO(cor(data[2:6]))
+#主成分分析降维
+model_lm.princomp <- princomp(data[2:6],cor = T)
+summary(model_lm.princomp,loadings=TRUE)
+screeplot(model_lm.princomp,type="lines")
+predict(model_lm.princomp)
+```
+
+### 含所有交互项的线性回归模型
+```{r}
+model_lm1 <- lm(y~x1*x2*x3*x4*x5)
+#模型详细结果
+summary(model_lm1)
+#模型参数
+coefficients(model_lm1)
+#模型参数的置信区间(该模型为空)
+confint(model_lm1)
+#模型预测值
+fitted(model_lm1)
+#模型残差值
+residuals(model_lm1)
+#模型方差分析
+anova(model_lm1)
+#AIC
+AIC(model_lm1)
+
+```
+
+
+这个模型过拟合了
+
+
+## Lasso回归
+```{r}
+library(lars)
+names(data) <- c("生态效率值","第二产业比重","人均水资源量","单位GDP能耗",
+                 "居民人均可支配收入","金融发展指数")
+lx <- as.matrix(data[2:6])
+ly <- as.matrix(data[1])
+larresult <- lars(lx,ly,type = "lasso")
+larresult
+plot(larresult)
+summary(larresult)
+larresult$Cp[which.min(larresult$Cp)]
+larresult$beta
+#系数
+coef <- coef.lars(larresult,mode="step",s=larresult$df[which.min(larresult$Cp)])
+#不为0的系数
+coef[coef!=0]
+#求截距值,其中s的含义和求取coef中的s相同，代表第几次迭代对应的模型的截距值。
+predict(larresult,data.frame(x1=0,x2=0,x3=0,x4=0,x5=0),
+        s=larresult$df[which.min(larresult$Cp)]) #
+
+```
+
+
+
